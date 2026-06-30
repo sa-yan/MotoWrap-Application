@@ -3,7 +3,8 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_URL = 'https://motowrap-backend-1.onrender.com/api'; // change to your backend URL
+// const API_URL = 'https://motowrap-backend-1.onrender.com/api'; // production
+const API_URL = 'http://10.39.35.40:8080/api'; // dev — replace with your PC's local IP
 
 const api = axios.create({
   baseURL: API_URL,

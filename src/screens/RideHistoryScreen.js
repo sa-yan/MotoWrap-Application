@@ -1,35 +1,31 @@
 // src/screens/RideHistoryScreen.js
 
-import { useContext, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
     FlatList,
+    StatusBar,
     StyleSheet,
     Text,
-    View
+    View,
 } from 'react-native';
 import { RideCard } from '../components/RideCard';
-import { AuthContext } from '../context/AuthContext';
 import { rideAPI } from '../services/api';
-import { theme } from '../theme';
 
 const RideHistoryScreenComponent = ({ navigation }) => {
-    const { user } = useContext(AuthContext);
     const [rides, setRides] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
-    useEffect(() => {
-        fetchRides();
-    }, []);
+    useEffect(() => { fetchRides(); }, []);
 
     const fetchRides = async () => {
         setLoading(true);
         try {
             const response = await rideAPI.getAllRides();
             setRides(response.data);
-        } catch (error) {
+        } catch {
             Alert.alert('Error', 'Failed to fetch rides');
         } finally {
             setLoading(false);
@@ -41,36 +37,50 @@ const RideHistoryScreenComponent = ({ navigation }) => {
         try {
             const response = await rideAPI.getAllRides();
             setRides(response.data);
-        } catch (error) {
+        } catch {
             Alert.alert('Error', 'Failed to refresh rides');
         } finally {
             setRefreshing(false);
         }
     };
 
-    const handleRidePress = (rideId) => {
-        navigation.navigate('RideMap', { rideId });
-    };
+    const totalDistance = Math.round(
+        rides.reduce((sum, r) => sum + (r.distanceKm || 0), 0) * 10
+    ) / 10;
 
     if (loading) {
         return (
             <View style={styles.centerContainer}>
-                <ActivityIndicator size="large" color="#2563eb" />
+                <StatusBar barStyle="light-content" backgroundColor="#0a0a0f" />
+                <ActivityIndicator size="large" color="#3b82f6" />
             </View>
         );
     }
 
     return (
         <View style={styles.container}>
+            <StatusBar barStyle="light-content" backgroundColor="#0a0a0f" />
+
             <View style={styles.header}>
                 <Text style={styles.title}>Your Rides</Text>
-                <Text style={styles.subtitle}>{rides.length} total rides</Text>
+                <View style={styles.statsRow}>
+                    <View style={styles.headerStat}>
+                        <Text style={styles.headerStatValue}>{rides.length}</Text>
+                        <Text style={styles.headerStatLabel}>Total Rides</Text>
+                    </View>
+                    <View style={styles.headerStatDivider} />
+                    <View style={styles.headerStat}>
+                        <Text style={styles.headerStatValue}>{totalDistance}</Text>
+                        <Text style={styles.headerStatLabel}>Total km</Text>
+                    </View>
+                </View>
             </View>
 
             {rides.length === 0 ? (
                 <View style={styles.emptyContainer}>
-                    <Text style={styles.emptyText}>No rides yet</Text>
-                    <Text style={styles.emptySubtext}>Start your first ride!</Text>
+                    <Text style={styles.emptyIcon}>🏍️</Text>
+                    <Text style={styles.emptyTitle}>No rides yet</Text>
+                    <Text style={styles.emptySubtext}>Hit the road and record your first ride</Text>
                 </View>
             ) : (
                 <FlatList
@@ -79,12 +89,13 @@ const RideHistoryScreenComponent = ({ navigation }) => {
                     renderItem={({ item }) => (
                         <RideCard
                             ride={item}
-                            onPress={() => handleRidePress(item.id)}
+                            onPress={() => navigation.navigate('RideMap', { rideId: item.id })}
                         />
                     )}
                     refreshing={refreshing}
                     onRefresh={onRefresh}
                     contentContainerStyle={styles.listContent}
+                    showsVerticalScrollIndicator={false}
                 />
             )}
         </View>
@@ -92,54 +103,70 @@ const RideHistoryScreenComponent = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: theme.colors.background,
-    },
+    container: { flex: 1, backgroundColor: '#0a0a0f' },
     centerContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
+        backgroundColor: '#0a0a0f',
     },
     header: {
-        backgroundColor: theme.colors.white,
-        paddingHorizontal: theme.spacing.lg,
-        paddingTop: theme.spacing.xl,
-        paddingBottom: theme.spacing.lg,
+        paddingHorizontal: 20,
+        paddingTop: 56,
+        paddingBottom: 20,
         borderBottomWidth: 1,
-        borderBottomColor: theme.colors.border,
+        borderBottomColor: 'rgba(255,255,255,0.06)',
     },
     title: {
-        fontSize: 32,
+        fontSize: 30,
         fontWeight: '800',
-        color: theme.colors.text,
-        marginBottom: theme.spacing.sm,
+        color: '#f1f5f9',
         letterSpacing: -0.5,
+        marginBottom: 16,
     },
-    subtitle: {
-        fontSize: 14,
-        color: theme.colors.textSecondary,
+    statsRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    headerStat: { alignItems: 'flex-start' },
+    headerStatValue: {
+        fontSize: 22,
+        fontWeight: '800',
+        color: '#3b82f6',
+        lineHeight: 26,
+    },
+    headerStatLabel: {
+        fontSize: 12,
+        color: '#475569',
         fontWeight: '500',
+        marginTop: 2,
+    },
+    headerStatDivider: {
+        width: 1,
+        height: 30,
+        backgroundColor: 'rgba(255,255,255,0.07)',
+        marginHorizontal: 20,
     },
     emptyContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        paddingHorizontal: theme.spacing.lg,
+        paddingHorizontal: 40,
     },
-    emptyText: {
-        fontSize: 20,
+    emptyIcon: { fontSize: 56, marginBottom: 16 },
+    emptyTitle: {
+        fontSize: 18,
         fontWeight: '700',
-        color: theme.colors.textSecondary,
-        marginBottom: theme.spacing.sm,
+        color: '#334155',
+        marginBottom: 8,
     },
     emptySubtext: {
         fontSize: 14,
-        color: theme.colors.textTertiary,
+        color: '#1e293b',
+        textAlign: 'center',
+        lineHeight: 20,
     },
-    listContent: {
-        paddingVertical: theme.spacing.md,
-    },
+    listContent: { paddingVertical: 12, paddingBottom: 24 },
 });
 
 export const RideHistoryScreen = RideHistoryScreenComponent;

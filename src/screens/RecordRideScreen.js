@@ -3,38 +3,87 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  Alert, ActivityIndicator, SafeAreaView, StatusBar,
+  Alert, ActivityIndicator, StatusBar, AppState,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { OSMMap } from '../components/OSMMap';
 import { rideAPI } from '../services/api';
+
+// Haversine distance in meters between two {latitude, longitude} points
+const haversineDistance = (p1, p2) => {
+  const R = 6371000;
+  const toRad = (x) => (x * Math.PI) / 180;
+  const dLat = toRad(p2.latitude - p1.latitude);
+  const dLon = toRad(p2.longitude - p1.longitude);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(p1.latitude)) * Math.cos(toRad(p2.latitude)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+// Points worse than this are discarded (horizontal accuracy in meters)
+const MAX_ACCURACY_METERS = 25;
+// Points closer than this to the previous accepted point are discarded (jitter gate)
+const MIN_DISTANCE_METERS = 5;
+// Points implying a speed faster than this are discarded (GPS teleportation spike)
+const MAX_SPEED_KMH = 250;
 
 export const RecordRideScreen = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
   const [routeCoordinates, setRouteCoordinates] = useState([]);
   const [duration, setDuration] = useState(0);
+  const [distanceKm, setDistanceKm] = useState(0);
+  const [currentSpeedKmh, setCurrentSpeedKmh] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [gpsAccuracy, setGpsAccuracy] = useState(null);
 
   const locationSubscription = useRef(null);
   const durationInterval = useRef(null);
   const batchInterval = useRef(null);
   const mapRef = useRef(null);
 
+  // Holds last accepted GPS point + its timestamp for speed-spike detection
+  const lastAcceptedPoint = useRef(null);
   // Buffer holds points not yet sent to backend
   const pointBuffer = useRef([]);
 
-  useEffect(() => {
-    (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Location access is required.');
-        return;
-      }
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+  const locationAcquired = useRef(false);
+
+  const initLocation = async () => {
+    if (locationAcquired.current) return;
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Denied', 'Location access is required.');
+      return;
+    }
+    const servicesEnabled = await Location.hasServicesEnabledAsync();
+    if (!servicesEnabled) {
+      Alert.alert('Location Services Off', 'Enable location services then return to the app.');
+      return;
+    }
+    try {
+      const loc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.BestForNavigation,
+      });
+      locationAcquired.current = true;
       setUserLocation(loc.coords);
-    })();
-    return () => stopAllTracking();
+      setGpsAccuracy(loc.coords.accuracy);
+    } catch (e) {
+      console.log('Location error:', e.message);
+    }
+  };
+
+  useEffect(() => {
+    initLocation();
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') initLocation();
+    });
+    return () => {
+      stopAllTracking();
+      appStateSub.remove();
+    };
   }, []);
 
   const stopAllTracking = () => {
@@ -47,12 +96,11 @@ export const RecordRideScreen = () => {
   const flushPointBuffer = async () => {
     if (pointBuffer.current.length === 0) return;
     const toSend = [...pointBuffer.current];
-    pointBuffer.current = []; // clear buffer immediately
+    pointBuffer.current = [];
     try {
       await rideAPI.addGpsPointsBatch(toSend);
     } catch (e) {
       console.log('Batch send failed, will retry next flush:', e.message);
-      // Put points back in buffer to retry
       pointBuffer.current = [...toSend, ...pointBuffer.current];
     }
   };
@@ -64,24 +112,57 @@ export const RecordRideScreen = () => {
       setIsRecording(true);
       setRouteCoordinates([]);
       setDuration(0);
+      setDistanceKm(0);
+      setCurrentSpeedKmh(0);
       pointBuffer.current = [];
+      lastAcceptedPoint.current = null;
 
       // Watch GPS location
       locationSubscription.current = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.BestForNavigation, timeInterval: 2000, distanceInterval: 0 },
+        {
+          accuracy: Location.Accuracy.BestForNavigation,
+          timeInterval: 1000,       // 1s — tighter tracking at speed
+          distanceInterval: 5,      // skip OS-level events for moves < 5m
+        },
         (location) => {
-          const { latitude, longitude, altitude, accuracy } = location.coords;
-          setUserLocation({ latitude, longitude });
+          const { latitude, longitude, altitude, accuracy, speed } = location.coords;
+          const timestamp = location.timestamp;
 
-          // Add to visual route
+          // Always update accuracy display
+          setGpsAccuracy(accuracy);
+
+          // 1. Accuracy filter — discard low-confidence fixes
+          if (accuracy !== null && accuracy > MAX_ACCURACY_METERS) return;
+
+          // 2. Speed-spike filter — discard GPS teleportation glitches
+          let segmentDistM = 0;
+          if (lastAcceptedPoint.current) {
+            segmentDistM = haversineDistance(lastAcceptedPoint.current, { latitude, longitude });
+            const dtHours = (timestamp - lastAcceptedPoint.current.timestamp) / 3_600_000;
+            if (dtHours > 0) {
+              const impliedSpeedKmh = segmentDistM / 1000 / dtHours;
+              if (impliedSpeedKmh > MAX_SPEED_KMH) return;
+              // Update live speed display
+              setCurrentSpeedKmh(Math.round(impliedSpeedKmh * 10) / 10);
+            }
+
+            // 3. Distance gate — belt-and-suspenders jitter guard
+            if (segmentDistM < MIN_DISTANCE_METERS) return;
+
+            // Accumulate distance
+            setDistanceKm((prev) => Math.round((prev + segmentDistM / 1000) * 1000) / 1000);
+          }
+
+          lastAcceptedPoint.current = { latitude, longitude, timestamp };
+
+          setUserLocation({ latitude, longitude });
           setRouteCoordinates((prev) => [...prev, { latitude, longitude }]);
 
-          // Add to send buffer
           pointBuffer.current.push({
             latitude,
             longitude,
-            altitude: altitude || 0,
-            accuracy: accuracy || 0,
+            altitude: altitude ?? null,
+            accuracy: accuracy ?? null,
           });
         }
       );
@@ -137,6 +218,8 @@ export const RecordRideScreen = () => {
             setIsRecording(false);
             setRouteCoordinates([]);
             setDuration(0);
+            setDistanceKm(0);
+            setCurrentSpeedKmh(0);
             if (userLocation && mapRef.current) {
               mapRef.current.injectJavaScript(
                 `resetMap(${userLocation.latitude}, ${userLocation.longitude}); true;`
@@ -182,21 +265,51 @@ export const RecordRideScreen = () => {
       {/* Top stats bar */}
       <SafeAreaView style={styles.topOverlay}>
         <View style={styles.statsBar}>
-          <View style={styles.statItem}>
-            <Text style={styles.statLabel}>DURATION</Text>
-            <Text style={styles.statValue}>{formatDuration(duration)}</Text>
+          {/* Row 1: main ride metrics */}
+          <View style={styles.statsRow}>
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>DURATION</Text>
+              <Text style={styles.statValue}>{formatDuration(duration)}</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>DISTANCE</Text>
+              <Text style={styles.statValue}>
+                {distanceKm >= 1
+                  ? `${distanceKm.toFixed(2)} km`
+                  : `${Math.round(distanceKm * 1000)} m`}
+              </Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>SPEED</Text>
+              <Text style={styles.statValue}>{currentSpeedKmh.toFixed(1)} km/h</Text>
+            </View>
           </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <Text style={styles.statLabel}>GPS PTS</Text>
-            <Text style={styles.statValue}>{routeCoordinates.length}</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <Text style={styles.statLabel}>STATUS</Text>
-            <Text style={[styles.statValue, isRecording ? styles.recording : styles.idle]}>
-              {isRecording ? '● REC' : '○ IDLE'}
-            </Text>
+
+          {/* Thin separator */}
+          <View style={styles.rowDivider} />
+
+          {/* Row 2: GPS status */}
+          <View style={styles.statsRow}>
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>GPS ACCURACY</Text>
+              <Text style={[
+                styles.statValueSmall,
+                gpsAccuracy === null ? styles.idle
+                  : gpsAccuracy <= MAX_ACCURACY_METERS ? styles.goodAccuracy
+                  : styles.badAccuracy,
+              ]}>
+                {gpsAccuracy === null ? '---' : `±${Math.round(gpsAccuracy)}m`}
+              </Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>STATUS</Text>
+              <Text style={[styles.statValueSmall, isRecording ? styles.recording : styles.idle]}>
+                {isRecording ? '● REC' : '○ IDLE'}
+              </Text>
+            </View>
           </View>
         </View>
       </SafeAreaView>
@@ -239,18 +352,22 @@ const styles = StyleSheet.create({
   placeholderText: { color: '#64748b', marginTop: 14, fontSize: 14, letterSpacing: 1 },
   topOverlay: { position: 'absolute', top: 0, left: 0, right: 0 },
   statsBar: {
-    flexDirection: 'row',
     backgroundColor: 'rgba(15,23,42,0.82)',
     marginHorizontal: 16, marginTop: 50,
-    borderRadius: 14, paddingVertical: 12, paddingHorizontal: 8,
+    borderRadius: 14, paddingVertical: 10, paddingHorizontal: 8,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
   },
+  statsRow: { flexDirection: 'row' },
+  rowDivider: { height: 1, backgroundColor: 'rgba(255,255,255,0.07)', marginVertical: 8 },
   statItem: { flex: 1, alignItems: 'center' },
-  statLabel: { color: '#64748b', fontSize: 10, letterSpacing: 1.2, marginBottom: 4 },
+  statLabel: { color: '#64748b', fontSize: 9, letterSpacing: 1.2, marginBottom: 3 },
   statValue: { color: '#f1f5f9', fontSize: 16, fontWeight: '700' },
-  statDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.1)', marginVertical: 4 },
+  statValueSmall: { color: '#f1f5f9', fontSize: 13, fontWeight: '600' },
+  statDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.1)', marginVertical: 2 },
   recording: { color: '#ef4444' },
   idle: { color: '#64748b' },
+  goodAccuracy: { color: '#22c55e' },
+  badAccuracy: { color: '#f59e0b' },
   bottomContainer: { position: 'absolute', bottom: 36, left: 20, right: 20 },
   rideButton: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
