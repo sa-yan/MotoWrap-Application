@@ -22,7 +22,7 @@ export const AuthProvider = ({ children }) => {
                     setUser(JSON.parse(savedUser));
                 }
             } catch (e) {
-                console.log('Error checking login:', e);
+                // no-op — treated as logged out
             } finally {
                 setLoading(false);
             }
@@ -35,8 +35,6 @@ export const AuthProvider = ({ children }) => {
             await authAPI.register(email, password, name);
             return await login(email, password);
         } catch (error) {
-            console.log('REGISTER ERROR:', error);
-            console.log('REGISTER RESPONSE:', error?.response?.data);
             throw error?.response?.data?.error || error?.message || 'Registration failed';
         }
     };
@@ -58,6 +56,12 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
+    const updateUser = async (updatedFields) => {
+        const merged = { ...user, ...updatedFields };
+        await AsyncStorage.setItem('user', JSON.stringify(merged));
+        setUser(merged);
+    };
+
     const logout = async () => {
         try {
             await AsyncStorage.removeItem('token');
@@ -65,12 +69,12 @@ export const AuthProvider = ({ children }) => {
             setToken(null);
             setUser(null);
         } catch (error) {
-            console.log('Logout error:', error);
+            // no-op — clear local state regardless
         }
     };
 
     return (
-        <AuthContext.Provider value={{ user, token, loading, login, register, logout }}>
+        <AuthContext.Provider value={{ user, token, loading, login, register, logout, updateUser }}>
             {children}
         </AuthContext.Provider>
     );

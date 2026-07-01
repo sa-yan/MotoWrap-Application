@@ -15,14 +15,18 @@ import {
     View,
 } from 'react-native';
 import { AuthContext } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 
 const LoginScreenComponent = () => {
     const { login, register } = useContext(AuthContext);
+    const { colors, isDark, toggleTheme } = useTheme();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [name, setName] = useState('');
     const [isLogin, setIsLogin] = useState(true);
     const [loading, setLoading] = useState(false);
+
+    const s = styles(colors);
 
     const handleSubmit = async () => {
         if (!email || !password) { Alert.alert('Error', 'Email and password required'); return; }
@@ -39,34 +43,38 @@ const LoginScreenComponent = () => {
     };
 
     return (
-        <KeyboardAvoidingView
-            style={styles.container}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-            <StatusBar barStyle="light-content" backgroundColor="#0a0a0f" />
+        <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+            <StatusBar barStyle={colors.statusBar} backgroundColor={colors.bg} />
             <ScrollView
-                contentContainerStyle={styles.scroll}
+                contentContainerStyle={s.scroll}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
             >
-                <View style={styles.brand}>
-                    <View style={styles.logoRing}>
-                        <Text style={styles.logoEmoji}>🏍️</Text>
+                {/* Theme toggle */}
+                <TouchableOpacity style={s.themeBtn} onPress={toggleTheme} activeOpacity={0.7}>
+                    <Text style={{ fontSize: 18 }}>{isDark ? '☀️' : '🌙'}</Text>
+                </TouchableOpacity>
+
+                {/* Brand */}
+                <View style={s.brand}>
+                    <View style={s.logoWrap}>
+                        <Text style={s.logoEmoji}>🏍️</Text>
                     </View>
-                    <Text style={styles.title}>MotoWrap</Text>
-                    <Text style={styles.subtitle}>Track every ride. Own every road.</Text>
+                    <Text style={s.appName}>MotoWrap</Text>
+                    <Text style={s.tagline}>Track every ride. Own every road.</Text>
                 </View>
 
-                <View style={styles.form}>
-                    <Text style={styles.formTitle}>{isLogin ? 'Welcome back' : 'Create account'}</Text>
+                {/* Form card */}
+                <View style={s.card}>
+                    <Text style={s.cardTitle}>{isLogin ? 'Welcome back' : 'Create account'}</Text>
 
                     {!isLogin && (
-                        <View style={styles.inputWrapper}>
-                            <Text style={styles.inputLabel}>NAME</Text>
+                        <View style={s.field}>
+                            <Text style={s.fieldLabel}>YOUR NAME</Text>
                             <TextInput
-                                style={styles.input}
-                                placeholder="Your name"
-                                placeholderTextColor="#334155"
+                                style={s.input}
+                                placeholder="Sayan"
+                                placeholderTextColor={colors.placeholder}
                                 value={name}
                                 onChangeText={setName}
                                 editable={!loading}
@@ -74,12 +82,12 @@ const LoginScreenComponent = () => {
                         </View>
                     )}
 
-                    <View style={styles.inputWrapper}>
-                        <Text style={styles.inputLabel}>EMAIL</Text>
+                    <View style={s.field}>
+                        <Text style={s.fieldLabel}>EMAIL</Text>
                         <TextInput
-                            style={styles.input}
+                            style={s.input}
                             placeholder="you@example.com"
-                            placeholderTextColor="#334155"
+                            placeholderTextColor={colors.placeholder}
                             value={email}
                             onChangeText={setEmail}
                             keyboardType="email-address"
@@ -88,12 +96,12 @@ const LoginScreenComponent = () => {
                         />
                     </View>
 
-                    <View style={styles.inputWrapper}>
-                        <Text style={styles.inputLabel}>PASSWORD</Text>
+                    <View style={s.field}>
+                        <Text style={s.fieldLabel}>PASSWORD</Text>
                         <TextInput
-                            style={styles.input}
+                            style={s.input}
                             placeholder="••••••••"
-                            placeholderTextColor="#334155"
+                            placeholderTextColor={colors.placeholder}
                             value={password}
                             onChangeText={setPassword}
                             secureTextEntry
@@ -102,21 +110,21 @@ const LoginScreenComponent = () => {
                     </View>
 
                     <TouchableOpacity
-                        style={[styles.button, loading && styles.buttonDisabled]}
+                        style={[s.submitBtn, loading && s.submitBtnDisabled]}
                         onPress={handleSubmit}
                         disabled={loading}
                         activeOpacity={0.85}
                     >
                         {loading
                             ? <ActivityIndicator color="#fff" size="small" />
-                            : <Text style={styles.buttonText}>{isLogin ? 'Sign In' : 'Create Account'}</Text>
+                            : <Text style={s.submitBtnText}>{isLogin ? 'Sign In' : 'Create Account'}</Text>
                         }
                     </TouchableOpacity>
 
-                    <TouchableOpacity onPress={() => setIsLogin(!isLogin)} disabled={loading} style={styles.toggle}>
-                        <Text style={styles.toggleText}>
-                            {isLogin ? "New here?  " : 'Already a rider?  '}
-                            <Text style={styles.toggleLink}>{isLogin ? 'Create account' : 'Sign in'}</Text>
+                    <TouchableOpacity onPress={() => setIsLogin(!isLogin)} disabled={loading} style={s.switchRow}>
+                        <Text style={s.switchText}>
+                            {isLogin ? "Don't have an account? " : 'Already have one? '}
+                            <Text style={s.switchLink}>{isLogin ? 'Sign up' : 'Sign in'}</Text>
                         </Text>
                     </TouchableOpacity>
                 </View>
@@ -125,108 +133,106 @@ const LoginScreenComponent = () => {
     );
 };
 
-const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#0a0a0f',
-    },
+const styles = (c) => StyleSheet.create({
+    container: { flex: 1, backgroundColor: c.bg },
     scroll: {
         flexGrow: 1,
         justifyContent: 'center',
         paddingHorizontal: 24,
-        paddingVertical: 40,
+        paddingVertical: 48,
     },
-    brand: {
-        alignItems: 'center',
-        marginBottom: 44,
-    },
-    logoRing: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
-        backgroundColor: 'rgba(59,130,246,0.1)',
-        borderWidth: 1.5,
-        borderColor: 'rgba(59,130,246,0.25)',
+
+    themeBtn: {
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: c.bgCard,
+        borderWidth: 1,
+        borderColor: c.border,
         alignItems: 'center',
         justifyContent: 'center',
-        marginBottom: 18,
     },
-    logoEmoji: { fontSize: 34 },
-    title: {
-        fontSize: 36,
-        fontWeight: '800',
-        color: '#f1f5f9',
-        letterSpacing: -1,
+
+    brand: { alignItems: 'center', marginBottom: 40 },
+    logoWrap: {
+        width: 76,
+        height: 76,
+        borderRadius: 38,
+        backgroundColor: c.accent + '1a',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 16,
+        shadowColor: c.accent,
+        shadowOpacity: 0.3,
+        shadowRadius: 20,
+        elevation: 8,
+    },
+    logoEmoji: { fontSize: 36 },
+    appName: {
+        fontSize: 40,
+        fontWeight: '900',
+        color: c.textPrimary,
+        letterSpacing: -1.5,
+        marginBottom: 6,
+    },
+    tagline: { fontSize: 14, color: c.textSecondary, fontWeight: '400' },
+
+    card: {
+        backgroundColor: c.bgCard,
+        borderRadius: 24,
+        padding: 24,
+        shadowColor: '#000',
+        shadowOpacity: 0.22,
+        shadowOffset: { width: 0, height: 8 },
+        shadowRadius: 24,
+        elevation: 10,
+    },
+    cardTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: c.textPrimary,
+        marginBottom: 24,
+    },
+
+    field: { marginBottom: 16 },
+    fieldLabel: {
+        fontSize: 10,
+        fontWeight: '700',
+        color: c.textMuted,
+        letterSpacing: 1.2,
         marginBottom: 8,
     },
-    subtitle: {
-        fontSize: 14,
-        color: '#475569',
-        fontWeight: '500',
-    },
-    form: {
-        backgroundColor: '#13131a',
-        borderRadius: 20,
-        padding: 24,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.06)',
-    },
-    formTitle: {
-        fontSize: 17,
-        fontWeight: '700',
-        color: '#f1f5f9',
-        marginBottom: 22,
-    },
-    inputWrapper: {
-        marginBottom: 14,
-    },
-    inputLabel: {
-        fontSize: 11,
-        fontWeight: '700',
-        color: '#475569',
-        letterSpacing: 0.8,
-        marginBottom: 7,
-    },
     input: {
-        backgroundColor: '#0d0d14',
-        borderRadius: 12,
-        paddingHorizontal: 16,
-        paddingVertical: 14,
-        fontSize: 15,
-        color: '#f1f5f9',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.07)',
-    },
-    button: {
-        backgroundColor: '#2563eb',
+        backgroundColor: c.bgInput,
         borderRadius: 14,
+        paddingHorizontal: 16,
         paddingVertical: 16,
+        fontSize: 15,
+        color: c.textPrimary,
+        borderWidth: 1,
+        borderColor: c.border,
+    },
+
+    submitBtn: {
+        backgroundColor: c.accentDark,
+        borderRadius: 16,
+        paddingVertical: 18,
         alignItems: 'center',
-        marginTop: 10,
-        shadowColor: '#2563eb',
-        shadowOpacity: 0.35,
-        shadowRadius: 10,
+        marginTop: 8,
+        shadowColor: c.accentDark,
+        shadowOpacity: 0.4,
+        shadowRadius: 12,
         elevation: 6,
     },
-    buttonDisabled: { opacity: 0.5 },
-    buttonText: {
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: '700',
-        letterSpacing: 0.2,
-    },
-    toggle: {
-        marginTop: 20,
-        alignItems: 'center',
-    },
-    toggleText: {
-        fontSize: 14,
-        color: '#475569',
-    },
-    toggleLink: {
-        color: '#3b82f6',
-        fontWeight: '600',
-    },
+    submitBtnDisabled: { opacity: 0.5 },
+    submitBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+
+    switchRow: { marginTop: 20, alignItems: 'center' },
+    switchText: { fontSize: 14, color: c.textSecondary },
+    switchLink: { color: c.accent, fontWeight: '600' },
 });
 
 export const LoginScreen = LoginScreenComponent;

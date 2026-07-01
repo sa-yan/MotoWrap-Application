@@ -8,13 +8,26 @@ import React, { useContext } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
 
 import { AuthProvider, AuthContext } from './src/context/AuthContext';
+import { ThemeProvider, useTheme } from './src/context/ThemeContext';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { LoginScreen } from './src/screens/LoginScreen';
+import { DashboardScreen } from './src/screens/DashboardScreen';
+import { ProfileScreen } from './src/screens/ProfileScreen';
+import { BikeFormScreen } from './src/screens/BikeFormScreen';
 import { RecordRideScreen } from './src/screens/RecordRideScreen';
 import { RideHistoryScreen } from './src/screens/RideHistoryScreen';
 import { RideMapScreen } from './src/screens/RideMapScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
+
+const DashboardStack = () => (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="DashboardHome" component={DashboardScreen} />
+        <Stack.Screen name="Profile" component={ProfileScreen} />
+        <Stack.Screen name="BikeForm" component={BikeFormScreen} />
+    </Stack.Navigator>
+);
 
 const RideHistoryStack = () => (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -23,58 +36,72 @@ const RideHistoryStack = () => (
     </Stack.Navigator>
 );
 
-const AppTabs = () => (
-    <Tab.Navigator
-        screenOptions={{
-            headerShown: false,
-            tabBarActiveTintColor: '#3b82f6',
-            tabBarInactiveTintColor: '#334155',
-            tabBarStyle: {
-                backgroundColor: '#0d0d14',
-                borderTopWidth: 1,
-                borderTopColor: 'rgba(255,255,255,0.06)',
-                height: 64,
-                paddingBottom: 10,
-                paddingTop: 6,
-            },
-            tabBarLabelStyle: {
-                fontSize: 11,
-                fontWeight: '600',
-                letterSpacing: 0.3,
-            },
-        }}
-    >
-        <Tab.Screen
-            name="Record"
-            component={RecordRideScreen}
-            options={{
-                tabBarLabel: 'Record',
-                tabBarIcon: ({ color, size }) => (
-                    <Ionicons name="navigate" color={color} size={22} />
-                ),
+const AppTabs = () => {
+    const { colors } = useTheme();
+    return (
+        <Tab.Navigator
+            screenOptions={{
+                headerShown: false,
+                tabBarActiveTintColor: colors.accent,
+                tabBarInactiveTintColor: colors.textMuted,
+                tabBarStyle: {
+                    backgroundColor: colors.bgTabBar,
+                    borderTopWidth: 1,
+                    borderTopColor: colors.border,
+                    height: 64,
+                    paddingBottom: 10,
+                    paddingTop: 6,
+                },
+                tabBarLabelStyle: {
+                    fontSize: 11,
+                    fontWeight: '600',
+                    letterSpacing: 0.3,
+                },
             }}
-        />
-        <Tab.Screen
-            name="History"
-            component={RideHistoryStack}
-            options={{
-                tabBarLabel: 'History',
-                tabBarIcon: ({ color, size }) => (
-                    <Ionicons name="time" color={color} size={22} />
-                ),
-            }}
-        />
-    </Tab.Navigator>
-);
+        >
+            <Tab.Screen
+                name="Dashboard"
+                component={DashboardStack}
+                options={{
+                    tabBarLabel: 'Home',
+                    tabBarIcon: ({ color }) => (
+                        <Ionicons name="home" color={color} size={22} />
+                    ),
+                }}
+            />
+            <Tab.Screen
+                name="Record"
+                component={RecordRideScreen}
+                options={{
+                    tabBarLabel: 'Record',
+                    tabBarIcon: ({ color }) => (
+                        <Ionicons name="navigate" color={color} size={22} />
+                    ),
+                }}
+            />
+            <Tab.Screen
+                name="History"
+                component={RideHistoryStack}
+                options={{
+                    tabBarLabel: 'History',
+                    tabBarIcon: ({ color }) => (
+                        <Ionicons name="time" color={color} size={22} />
+                    ),
+                }}
+            />
+        </Tab.Navigator>
+    );
+};
 
 const RootNavigator = () => {
     const { token, loading } = useContext(AuthContext);
+    const { colors } = useTheme();
 
     if (loading) {
         return (
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0a0a0f' }}>
-                <ActivityIndicator size="large" color="#3b82f6" />
-                <Text style={{ marginTop: 16, fontSize: 15, color: '#475569', fontWeight: '600' }}>
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg }}>
+                <ActivityIndicator size="large" color={colors.accent} />
+                <Text style={{ marginTop: 16, fontSize: 15, color: colors.textSecondary, fontWeight: '600' }}>
                     Loading...
                 </Text>
             </View>
@@ -96,8 +123,12 @@ const RootNavigator = () => {
 
 export default function App() {
     return (
-        <AuthProvider>
-            <RootNavigator />
-        </AuthProvider>
+        <ErrorBoundary>
+            <ThemeProvider>
+                <AuthProvider>
+                    <RootNavigator />
+                </AuthProvider>
+            </ThemeProvider>
+        </ErrorBoundary>
     );
 }

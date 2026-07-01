@@ -48,27 +48,42 @@ export const OSMMap = forwardRef(({
         }
         .leaflet-control-attribution a { color: #64748b !important; }
 
-        @keyframes pulse {
-          0%   { transform: scale(1);   opacity: 1; }
-          70%  { transform: scale(2.8); opacity: 0; }
-          100% { transform: scale(1);   opacity: 0; }
+        @keyframes pulse-out {
+          0%   { transform: scale(0.4); opacity: 0.85; }
+          100% { transform: scale(3.4); opacity: 0; }
+        }
+        .marker-wrap {
+          position: relative;
+          width: 64px;
+          height: 64px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
         .pulse-ring {
           position: absolute;
-          top: 50%; left: 50%;
-          width: 14px; height: 14px;
-          margin: -7px 0 0 -7px;
+          width: 22px;
+          height: 22px;
           border-radius: 50%;
-          background: rgba(96,165,250,0.5);
-          animation: pulse 1.8s ease-out infinite;
+          background: rgba(96,165,250,0.55);
+          animation: pulse-out 2.2s ease-out infinite;
         }
-        .pulse-dot {
+        .pulse-ring-2 {
+          background: rgba(96,165,250,0.28);
+          animation-delay: 0.8s;
+        }
+        .marker-dot {
           position: relative;
-          width: 14px; height: 14px;
+          z-index: 10;
+          width: 20px;
+          height: 20px;
           border-radius: 50%;
           background: #60a5fa;
-          border: 2.5px solid #fff;
-          box-shadow: 0 0 0 2px rgba(96,165,250,0.4), 0 2px 8px rgba(0,0,0,0.5);
+          border: 3px solid #ffffff;
+          box-shadow:
+            0 0 0 3px rgba(96,165,250,0.35),
+            0 0 20px rgba(96,165,250,0.7),
+            0 3px 10px rgba(0,0,0,0.6);
         }
       </style>
     </head>
@@ -140,9 +155,9 @@ export const OSMMap = forwardRef(({
         function drawCurrentPos(lat, lon) {
           if (posMarker) map.removeLayer(posMarker);
           var icon = L.divIcon({
-            html: '<div class="pulse-ring"></div><div class="pulse-dot"></div>',
-            iconSize: [14, 14],
-            iconAnchor: [7, 7],
+            html: '<div class="marker-wrap"><div class="pulse-ring"></div><div class="pulse-ring pulse-ring-2"></div><div class="marker-dot"></div></div>',
+            iconSize: [64, 64],
+            iconAnchor: [32, 32],
             className: '',
           });
           posMarker = L.marker([lat, lon], { icon: icon }).addTo(map);

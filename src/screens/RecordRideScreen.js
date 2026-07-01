@@ -8,7 +8,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { OSMMap } from '../components/OSMMap';
+import { useTheme } from '../context/ThemeContext';
 import { rideAPI } from '../services/api';
+import { getErrorMessage } from '../utils/errors';
 
 // Haversine distance in meters between two {latitude, longitude} points
 const haversineDistance = (p1, p2) => {
@@ -30,12 +32,14 @@ const MIN_DISTANCE_METERS = 5;
 const MAX_SPEED_KMH = 250;
 
 export const RecordRideScreen = () => {
+  const { colors } = useTheme();
   const [isRecording, setIsRecording] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
   const [routeCoordinates, setRouteCoordinates] = useState([]);
   const [duration, setDuration] = useState(0);
   const [distanceKm, setDistanceKm] = useState(0);
   const [currentSpeedKmh, setCurrentSpeedKmh] = useState(0);
+  const [maxSpeedKmh, setMaxSpeedKmh] = useState(0);
   const [loading, setLoading] = useState(false);
   const [gpsAccuracy, setGpsAccuracy] = useState(null);
 
@@ -71,7 +75,7 @@ export const RecordRideScreen = () => {
       setUserLocation(loc.coords);
       setGpsAccuracy(loc.coords.accuracy);
     } catch (e) {
-      console.log('Location error:', e.message);
+      Alert.alert('Location Error', 'Could not acquire GPS location.');
     }
   };
 
@@ -100,7 +104,7 @@ export const RecordRideScreen = () => {
     try {
       await rideAPI.addGpsPointsBatch(toSend);
     } catch (e) {
-      console.log('Batch send failed, will retry next flush:', e.message);
+      // network hiccup — put points back and retry on next flush
       pointBuffer.current = [...toSend, ...pointBuffer.current];
     }
   };
@@ -114,6 +118,7 @@ export const RecordRideScreen = () => {
       setDuration(0);
       setDistanceKm(0);
       setCurrentSpeedKmh(0);
+      setMaxSpeedKmh(0);
       pointBuffer.current = [];
       lastAcceptedPoint.current = null;
 
@@ -142,8 +147,9 @@ export const RecordRideScreen = () => {
             if (dtHours > 0) {
               const impliedSpeedKmh = segmentDistM / 1000 / dtHours;
               if (impliedSpeedKmh > MAX_SPEED_KMH) return;
-              // Update live speed display
-              setCurrentSpeedKmh(Math.round(impliedSpeedKmh * 10) / 10);
+              const roundedSpeed = Math.round(impliedSpeedKmh * 10) / 10;
+              setCurrentSpeedKmh(roundedSpeed);
+              setMaxSpeedKmh((prev) => roundedSpeed > prev ? roundedSpeed : prev);
             }
 
             // 3. Distance gate — belt-and-suspenders jitter guard
@@ -158,11 +164,15 @@ export const RecordRideScreen = () => {
           setUserLocation({ latitude, longitude });
           setRouteCoordinates((prev) => [...prev, { latitude, longitude }]);
 
+          // speed from chipset is in m/s — convert to km/h for backend
+          const chipsetSpeedKmh = (speed != null && speed >= 0) ? speed * 3.6 : null;
+
           pointBuffer.current.push({
             latitude,
             longitude,
             altitude: altitude ?? null,
             accuracy: accuracy ?? null,
+            speed: chipsetSpeedKmh,
           });
         }
       );
@@ -174,7 +184,7 @@ export const RecordRideScreen = () => {
       durationInterval.current = setInterval(() => setDuration((p) => p + 1), 1000);
 
     } catch (e) {
-      Alert.alert('Error', 'Failed to start ride. Is backend running?');
+      Alert.alert('Could Not Start Ride', getErrorMessage(e, 'Failed to start ride'));
     } finally {
       setLoading(false);
     }
@@ -192,7 +202,6 @@ export const RecordRideScreen = () => {
           await rideAPI.addGpsPointsBatch([...pointBuffer.current]);
           pointBuffer.current = [];
         } catch (e) {
-          console.log('Final flush failed:', e.message);
           // Continue ending ride even if final flush fails
         }
       }
@@ -207,11 +216,12 @@ export const RecordRideScreen = () => {
 
       const dist = Math.round((response.data.distanceKm || 0) * 10) / 10;
       const mins = Math.floor((response.data.durationSeconds || 0) / 60);
-      const speed = Math.round((response.data.averageSpeed || 0) * 10) / 10;
+      const avgSpeed = Math.round((response.data.averageSpeed || 0) * 10) / 10;
+      const topSpeed = Math.round((response.data.maxSpeed || maxSpeedKmh) * 10) / 10;
 
       Alert.alert(
         '🏍️ Ride Complete!',
-        `Distance: ${dist} km\nDuration: ${mins} min\nAvg Speed: ${speed} km/h`,
+        `Distance: ${dist} km\nDuration: ${mins} min\nAvg Speed: ${avgSpeed} km/h\nTop Speed: ${topSpeed} km/h`,
         [{
           text: 'OK',
           onPress: () => {
@@ -220,6 +230,7 @@ export const RecordRideScreen = () => {
             setDuration(0);
             setDistanceKm(0);
             setCurrentSpeedKmh(0);
+            setMaxSpeedKmh(0);
             if (userLocation && mapRef.current) {
               mapRef.current.injectJavaScript(
                 `resetMap(${userLocation.latitude}, ${userLocation.longitude}); true;`
@@ -229,8 +240,7 @@ export const RecordRideScreen = () => {
         }]
       );
     } catch (e) {
-      console.log('End ride error:', e);
-      Alert.alert('Error', `Failed to end ride: ${e.message}`);
+      Alert.alert('Could Not End Ride', getErrorMessage(e, 'Failed to end ride'));
       setIsRecording(false);
     } finally {
       setLoading(false);
@@ -243,8 +253,10 @@ export const RecordRideScreen = () => {
     return `${m}:${String(sec).padStart(2, '0')}`;
   };
 
+  const s = styles(colors);
+
   return (
-    <View style={styles.container}>
+    <View style={s.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
       {userLocation ? (
@@ -256,57 +268,64 @@ export const RecordRideScreen = () => {
           zoom={16}
         />
       ) : (
-        <View style={styles.mapPlaceholder}>
-          <ActivityIndicator size="large" color="#3b82f6" />
-          <Text style={styles.placeholderText}>Acquiring GPS...</Text>
+        <View style={s.mapPlaceholder}>
+          <ActivityIndicator size="large" color={colors.accent} />
+          <Text style={s.placeholderText}>Acquiring GPS...</Text>
         </View>
       )}
 
       {/* Top stats bar */}
-      <SafeAreaView style={styles.topOverlay}>
-        <View style={styles.statsBar}>
+      <SafeAreaView style={s.topOverlay}>
+        <View style={s.statsBar}>
           {/* Row 1: main ride metrics */}
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Text style={styles.statLabel}>DURATION</Text>
-              <Text style={styles.statValue}>{formatDuration(duration)}</Text>
+          <View style={s.statsRow}>
+            <View style={s.statItem}>
+              <Text style={s.statLabel}>DURATION</Text>
+              <Text style={s.statValue}>{formatDuration(duration)}</Text>
             </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statLabel}>DISTANCE</Text>
-              <Text style={styles.statValue}>
+            <View style={s.statDivider} />
+            <View style={s.statItem}>
+              <Text style={s.statLabel}>DISTANCE</Text>
+              <Text style={s.statValue}>
                 {distanceKm >= 1
                   ? `${distanceKm.toFixed(2)} km`
                   : `${Math.round(distanceKm * 1000)} m`}
               </Text>
             </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statLabel}>SPEED</Text>
-              <Text style={styles.statValue}>{currentSpeedKmh.toFixed(1)} km/h</Text>
+            <View style={s.statDivider} />
+            <View style={s.statItem}>
+              <Text style={s.statLabel}>SPEED</Text>
+              <Text style={s.statValue}>{currentSpeedKmh.toFixed(1)} km/h</Text>
             </View>
           </View>
 
           {/* Thin separator */}
-          <View style={styles.rowDivider} />
+          <View style={s.rowDivider} />
 
-          {/* Row 2: GPS status */}
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Text style={styles.statLabel}>GPS ACCURACY</Text>
+          {/* Row 2: GPS status + max speed */}
+          <View style={s.statsRow}>
+            <View style={s.statItem}>
+              <Text style={s.statLabel}>GPS ACCURACY</Text>
               <Text style={[
-                styles.statValueSmall,
-                gpsAccuracy === null ? styles.idle
-                  : gpsAccuracy <= MAX_ACCURACY_METERS ? styles.goodAccuracy
-                  : styles.badAccuracy,
+                s.statValueSmall,
+                gpsAccuracy === null ? s.idle
+                  : gpsAccuracy <= MAX_ACCURACY_METERS ? s.goodAccuracy
+                  : s.badAccuracy,
               ]}>
                 {gpsAccuracy === null ? '---' : `±${Math.round(gpsAccuracy)}m`}
               </Text>
             </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statLabel}>STATUS</Text>
-              <Text style={[styles.statValueSmall, isRecording ? styles.recording : styles.idle]}>
+            <View style={s.statDivider} />
+            <View style={s.statItem}>
+              <Text style={s.statLabel}>MAX SPEED</Text>
+              <Text style={[s.statValueSmall, maxSpeedKmh > 0 ? s.maxSpeed : s.idle]}>
+                {maxSpeedKmh > 0 ? `${maxSpeedKmh.toFixed(1)} km/h` : '---'}
+              </Text>
+            </View>
+            <View style={s.statDivider} />
+            <View style={s.statItem}>
+              <Text style={s.statLabel}>STATUS</Text>
+              <Text style={[s.statValueSmall, isRecording ? s.recording : s.idle]}>
                 {isRecording ? '● REC' : '○ IDLE'}
               </Text>
             </View>
@@ -315,29 +334,29 @@ export const RecordRideScreen = () => {
       </SafeAreaView>
 
       {/* Bottom button */}
-      <View style={styles.bottomContainer}>
+      <View style={s.bottomContainer}>
         {!isRecording ? (
           <TouchableOpacity
-            style={[styles.rideButton, styles.startButton, (!userLocation || loading) && styles.disabled]}
+            style={[s.rideButton, s.startButton, (!userLocation || loading) && s.disabled]}
             onPress={startRide}
             disabled={loading || !userLocation}
             activeOpacity={0.85}
           >
             {loading
               ? <ActivityIndicator color="#fff" size="small" />
-              : <><Text style={styles.buttonIcon}>🏍️</Text><Text style={styles.buttonText}>Start Ride</Text></>
+              : <><Text style={s.buttonIcon}>🏍️</Text><Text style={s.buttonText}>Start Ride</Text></>
             }
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
-            style={[styles.rideButton, styles.stopButton, loading && styles.disabled]}
+            style={[s.rideButton, s.stopButton, loading && s.disabled]}
             onPress={endRide}
             disabled={loading}
             activeOpacity={0.85}
           >
             {loading
               ? <ActivityIndicator color="#fff" size="small" />
-              : <><Text style={styles.buttonIcon}>⏹️</Text><Text style={styles.buttonText}>End Ride</Text></>
+              : <><Text style={s.buttonIcon}>⏹️</Text><Text style={s.buttonText}>End Ride</Text></>
             }
           </TouchableOpacity>
         )}
@@ -346,26 +365,27 @@ export const RecordRideScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const styles = (c) => StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f172a' },
   mapPlaceholder: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0f172a' },
-  placeholderText: { color: '#64748b', marginTop: 14, fontSize: 14, letterSpacing: 1 },
+  placeholderText: { color: c.textSecondary, marginTop: 14, fontSize: 14, letterSpacing: 1 },
   topOverlay: { position: 'absolute', top: 0, left: 0, right: 0 },
   statsBar: {
-    backgroundColor: 'rgba(15,23,42,0.82)',
+    backgroundColor: c.statsBarBg,
     marginHorizontal: 16, marginTop: 50,
     borderRadius: 14, paddingVertical: 10, paddingHorizontal: 8,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1, borderColor: c.borderStrong,
   },
   statsRow: { flexDirection: 'row' },
-  rowDivider: { height: 1, backgroundColor: 'rgba(255,255,255,0.07)', marginVertical: 8 },
+  rowDivider: { height: 1, backgroundColor: c.divider, marginVertical: 8 },
   statItem: { flex: 1, alignItems: 'center' },
-  statLabel: { color: '#64748b', fontSize: 9, letterSpacing: 1.2, marginBottom: 3 },
-  statValue: { color: '#f1f5f9', fontSize: 16, fontWeight: '700' },
-  statValueSmall: { color: '#f1f5f9', fontSize: 13, fontWeight: '600' },
-  statDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.1)', marginVertical: 2 },
+  statLabel: { color: c.textSecondary, fontSize: 9, letterSpacing: 1.2, marginBottom: 3 },
+  statValue: { color: c.textPrimary, fontSize: 16, fontWeight: '700' },
+  statValueSmall: { color: c.textPrimary, fontSize: 13, fontWeight: '600' },
+  statDivider: { width: 1, backgroundColor: c.divider, marginVertical: 2 },
   recording: { color: '#ef4444' },
-  idle: { color: '#64748b' },
+  idle: { color: c.textMuted },
+  maxSpeed: { color: c.orange },
   goodAccuracy: { color: '#22c55e' },
   badAccuracy: { color: '#f59e0b' },
   bottomContainer: { position: 'absolute', bottom: 36, left: 20, right: 20 },

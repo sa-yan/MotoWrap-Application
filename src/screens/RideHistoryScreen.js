@@ -1,6 +1,6 @@
 // src/screens/RideHistoryScreen.js
 
-import { useEffect, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -10,24 +10,34 @@ import {
     Text,
     View,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { RideCard } from '../components/RideCard';
+import { useTheme } from '../context/ThemeContext';
 import { rideAPI } from '../services/api';
+import { getErrorMessage } from '../utils/errors';
 
 const RideHistoryScreenComponent = ({ navigation }) => {
+    const { colors } = useTheme();
     const [rides, setRides] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
-    useEffect(() => { fetchRides(); }, []);
+    const s = styles(colors);
+    const hasLoadedOnce = useRef(false);
+
+    useFocusEffect(
+        useCallback(() => { fetchRides(); }, [])
+    );
 
     const fetchRides = async () => {
-        setLoading(true);
+        if (!hasLoadedOnce.current) setLoading(true);
         try {
             const response = await rideAPI.getAllRides();
             setRides(response.data);
-        } catch {
-            Alert.alert('Error', 'Failed to fetch rides');
+        } catch (e) {
+            Alert.alert('Error', getErrorMessage(e, 'Failed to fetch rides'));
         } finally {
+            hasLoadedOnce.current = true;
             setLoading(false);
         }
     };
@@ -37,50 +47,56 @@ const RideHistoryScreenComponent = ({ navigation }) => {
         try {
             const response = await rideAPI.getAllRides();
             setRides(response.data);
-        } catch {
-            Alert.alert('Error', 'Failed to refresh rides');
+        } catch (e) {
+            Alert.alert('Error', getErrorMessage(e, 'Failed to refresh rides'));
         } finally {
             setRefreshing(false);
         }
     };
 
-    const totalDistance = Math.round(
-        rides.reduce((sum, r) => sum + (r.distanceKm || 0), 0) * 10
-    ) / 10;
+    const totalDistance = Math.round(rides.reduce((sum, r) => sum + (r.distanceKm || 0), 0) * 10) / 10;
+    const topSpeed = Math.round(Math.max(...rides.map(r => r.maxSpeed || 0), 0) * 10) / 10;
 
     if (loading) {
         return (
-            <View style={styles.centerContainer}>
-                <StatusBar barStyle="light-content" backgroundColor="#0a0a0f" />
-                <ActivityIndicator size="large" color="#3b82f6" />
+            <View style={s.centerContainer}>
+                <StatusBar barStyle={colors.statusBar} backgroundColor={colors.bg} />
+                <ActivityIndicator size="large" color={colors.accent} />
             </View>
         );
     }
 
     return (
-        <View style={styles.container}>
-            <StatusBar barStyle="light-content" backgroundColor="#0a0a0f" />
+        <View style={s.container}>
+            <StatusBar barStyle={colors.statusBar} backgroundColor={colors.bg} />
 
-            <View style={styles.header}>
-                <Text style={styles.title}>Your Rides</Text>
-                <View style={styles.statsRow}>
-                    <View style={styles.headerStat}>
-                        <Text style={styles.headerStatValue}>{rides.length}</Text>
-                        <Text style={styles.headerStatLabel}>Total Rides</Text>
+            <View style={s.header}>
+                <Text style={s.title}>Your Rides</Text>
+                <View style={s.summaryRow}>
+                    <View style={s.summaryStat}>
+                        <Text style={s.summaryValue}>{rides.length}</Text>
+                        <Text style={s.summaryLabel}>rides</Text>
                     </View>
-                    <View style={styles.headerStatDivider} />
-                    <View style={styles.headerStat}>
-                        <Text style={styles.headerStatValue}>{totalDistance}</Text>
-                        <Text style={styles.headerStatLabel}>Total km</Text>
+                    <Text style={s.summaryDot}>·</Text>
+                    <View style={s.summaryStat}>
+                        <Text style={s.summaryValue}>{totalDistance}</Text>
+                        <Text style={s.summaryLabel}> km</Text>
+                    </View>
+                    <Text style={s.summaryDot}>·</Text>
+                    <View style={s.summaryStat}>
+                        <Text style={[s.summaryValue, { color: colors.orange }]}>
+                            {topSpeed > 0 ? topSpeed : '—'}
+                        </Text>
+                        <Text style={s.summaryLabel}> top km/h</Text>
                     </View>
                 </View>
             </View>
 
             {rides.length === 0 ? (
-                <View style={styles.emptyContainer}>
-                    <Text style={styles.emptyIcon}>🏍️</Text>
-                    <Text style={styles.emptyTitle}>No rides yet</Text>
-                    <Text style={styles.emptySubtext}>Hit the road and record your first ride</Text>
+                <View style={s.empty}>
+                    <Text style={s.emptyEmoji}>🏍️</Text>
+                    <Text style={s.emptyTitle}>No rides yet</Text>
+                    <Text style={s.emptyBody}>Get out there and record your first one!</Text>
                 </View>
             ) : (
                 <FlatList
@@ -94,7 +110,7 @@ const RideHistoryScreenComponent = ({ navigation }) => {
                     )}
                     refreshing={refreshing}
                     onRefresh={onRefresh}
-                    contentContainerStyle={styles.listContent}
+                    contentContainerStyle={s.list}
                     showsVerticalScrollIndicator={false}
                 />
             )}
@@ -102,71 +118,49 @@ const RideHistoryScreenComponent = ({ navigation }) => {
     );
 };
 
-const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#0a0a0f' },
-    centerContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: '#0a0a0f',
-    },
+const styles = (c) => StyleSheet.create({
+    container: { flex: 1, backgroundColor: c.bg },
+    centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: c.bg },
+
     header: {
-        paddingHorizontal: 20,
-        paddingTop: 56,
+        paddingHorizontal: 24,
+        paddingTop: 60,
         paddingBottom: 20,
-        borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255,255,255,0.06)',
     },
     title: {
-        fontSize: 30,
-        fontWeight: '800',
-        color: '#f1f5f9',
-        letterSpacing: -0.5,
-        marginBottom: 16,
+        fontSize: 32,
+        fontWeight: '900',
+        color: c.textPrimary,
+        letterSpacing: -1,
+        marginBottom: 12,
     },
-    statsRow: {
+    summaryRow: {
         flexDirection: 'row',
-        alignItems: 'center',
+        alignItems: 'baseline',
     },
-    headerStat: { alignItems: 'flex-start' },
-    headerStatValue: {
-        fontSize: 22,
-        fontWeight: '800',
-        color: '#3b82f6',
-        lineHeight: 26,
-    },
-    headerStatLabel: {
-        fontSize: 12,
-        color: '#475569',
-        fontWeight: '500',
-        marginTop: 2,
-    },
-    headerStatDivider: {
-        width: 1,
-        height: 30,
-        backgroundColor: 'rgba(255,255,255,0.07)',
-        marginHorizontal: 20,
-    },
-    emptyContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        paddingHorizontal: 40,
-    },
-    emptyIcon: { fontSize: 56, marginBottom: 16 },
-    emptyTitle: {
+    summaryStat: { flexDirection: 'row', alignItems: 'baseline' },
+    summaryValue: {
         fontSize: 18,
-        fontWeight: '700',
-        color: '#334155',
-        marginBottom: 8,
+        fontWeight: '800',
+        color: c.accent,
     },
-    emptySubtext: {
+    summaryLabel: {
+        fontSize: 13,
+        color: c.textSecondary,
+        fontWeight: '500',
+    },
+    summaryDot: {
         fontSize: 14,
-        color: '#1e293b',
-        textAlign: 'center',
-        lineHeight: 20,
+        color: c.textMuted,
+        marginHorizontal: 10,
     },
-    listContent: { paddingVertical: 12, paddingBottom: 24 },
+
+    empty: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40 },
+    emptyEmoji: { fontSize: 60, marginBottom: 16 },
+    emptyTitle: { fontSize: 20, fontWeight: '800', color: c.textSecondary, marginBottom: 8 },
+    emptyBody: { fontSize: 14, color: c.textMuted, textAlign: 'center', lineHeight: 22 },
+
+    list: { paddingTop: 8, paddingBottom: 24 },
 });
 
 export const RideHistoryScreen = RideHistoryScreenComponent;

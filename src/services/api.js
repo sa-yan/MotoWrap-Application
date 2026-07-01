@@ -3,8 +3,8 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// const API_URL = 'https://motowrap-backend-1.onrender.com/api'; // production
-const API_URL = 'http://10.39.35.40:8080/api'; // dev — replace with your PC's local IP
+const API_URL = 'https://motowrap-backend-1.onrender.com/api'; // production
+// const API_URL = 'http://10.39.35.40:8080/api'; // dev — replace with your PC's local IP
 
 const api = axios.create({
   baseURL: API_URL,
@@ -18,11 +18,37 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
+// On 401/403, clear stored credentials so AuthContext redirects to login
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const status = error?.response?.status;
+    if (status === 401 || status === 403) {
+      await AsyncStorage.removeItem('token');
+      await AsyncStorage.removeItem('user');
+    }
+    return Promise.reject(error);
+  },
+);
+
 export const authAPI = {
   register: (email, password, name) =>
     api.post('/auth/register', { email, password, name }),
   login: (email, password) =>
     api.post('/auth/login', { email, password }),
+};
+
+export const userAPI = {
+  getProfile: () => api.get('/users/me'),
+  updateProfile: (data) => api.put('/users/me', data),
+};
+
+export const bikeAPI = {
+  getBikes: () => api.get('/bikes'),
+  createBike: (data) => api.post('/bikes', data),
+  updateBike: (id, data) => api.put(`/bikes/${id}`, data),
+  deleteBike: (id) => api.delete(`/bikes/${id}`),
+  setDefault: (id) => api.put(`/bikes/${id}/default`),
 };
 
 export const rideAPI = {
@@ -45,6 +71,12 @@ export const rideAPI = {
 
   getRideDetail: (rideId) =>
     api.get(`/rides/${rideId}`),
+
+  deleteRide: (rideId) =>
+    api.delete(`/rides/${rideId}`),
+
+  getStats: () =>
+    api.get('/rides/stats'),
 };
 
 export default api;

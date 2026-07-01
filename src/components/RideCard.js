@@ -1,8 +1,12 @@
 // src/components/RideCard.js
 
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useTheme } from '../context/ThemeContext';
 
 export const RideCard = ({ ride, onPress }) => {
+    const { colors } = useTheme();
+    const s = styles(colors);
+
     const formatDuration = (seconds) => {
         if (!seconds) return '0m';
         const h = Math.floor(seconds / 3600);
@@ -19,124 +23,114 @@ export const RideCard = ({ ride, onPress }) => {
     };
 
     const avgSpeed = Math.round((ride.averageSpeed || 0) * 10) / 10;
+    const maxSpeed = Math.round((ride.maxSpeed || 0) * 10) / 10;
     const distance = Math.round((ride.distanceKm || 0) * 10) / 10;
+    const duration = formatDuration(ride.durationSeconds);
 
     return (
-        <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.75}>
-            <View style={styles.accentBar} />
-            <View style={styles.content}>
-                <View style={styles.header}>
-                    <Text style={styles.date}>{formatDate(ride.startTime)}</Text>
-                    <View style={styles.badge}>
-                        <Text style={styles.badgeText}>{ride.status || 'completed'}</Text>
+        <TouchableOpacity style={s.card} onPress={onPress} activeOpacity={0.72}>
+            <View style={s.accentBar} />
+            <View style={s.content}>
+                {/* Top row: date + badge */}
+                <View style={s.topRow}>
+                    <Text style={s.date}>{formatDate(ride.startTime)}</Text>
+                    <View style={s.badge}>
+                        <Text style={s.badgeText}>{ride.status ?? 'completed'}</Text>
                     </View>
                 </View>
 
-                <View style={styles.stats}>
-                    <View style={styles.statItem}>
-                        <Text style={styles.statValue}>{distance}</Text>
-                        <Text style={styles.statUnit}>KM</Text>
-                        <Text style={styles.statLabel}>Distance</Text>
-                    </View>
-                    <View style={styles.statDivider} />
-                    <View style={styles.statItem}>
-                        <Text style={styles.statValue}>{formatDuration(ride.durationSeconds)}</Text>
-                        <Text style={styles.statUnit}> </Text>
-                        <Text style={styles.statLabel}>Duration</Text>
-                    </View>
-                    <View style={styles.statDivider} />
-                    <View style={styles.statItem}>
-                        <Text style={styles.statValue}>{avgSpeed}</Text>
-                        <Text style={styles.statUnit}>KM/H</Text>
-                        <Text style={styles.statLabel}>Avg Speed</Text>
-                    </View>
+                {/* Hero: distance */}
+                <View style={s.distanceRow}>
+                    <Text style={s.distanceNumber}>{distance}</Text>
+                    <Text style={s.distanceUnit}>km</Text>
+                </View>
+
+                {/* Info row: duration · avg · top */}
+                <View style={s.infoRow}>
+                    <Text style={s.infoText}>{duration}</Text>
+                    <Text style={s.infoDot}>·</Text>
+                    <Text style={s.infoText}>{avgSpeed} km/h avg</Text>
+                    {maxSpeed > 0 && (
+                        <>
+                            <Text style={s.infoDot}>·</Text>
+                            <Text style={[s.infoText, s.infoTopSpeed]}>
+                                {maxSpeed} top
+                            </Text>
+                        </>
+                    )}
                 </View>
             </View>
         </TouchableOpacity>
     );
 };
 
-const styles = StyleSheet.create({
+const styles = (c) => StyleSheet.create({
     card: {
-        backgroundColor: '#13131a',
-        borderRadius: 16,
+        backgroundColor: c.bgCard,
+        borderRadius: 18,
         marginHorizontal: 16,
         marginVertical: 6,
         flexDirection: 'row',
         overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.06)',
-        elevation: 3,
-        shadowColor: '#000',
-        shadowOpacity: 0.3,
-        shadowRadius: 6,
+        elevation: 4,
+        shadowColor: c.shadow,
+        shadowOpacity: 0.18,
+        shadowOffset: { width: 0, height: 2 },
+        shadowRadius: 8,
     },
-    accentBar: {
-        width: 4,
-        backgroundColor: '#2563eb',
-    },
-    content: {
-        flex: 1,
-        padding: 16,
-    },
-    header: {
+    accentBar: { width: 5, backgroundColor: c.accentDark },
+    content: { flex: 1, paddingHorizontal: 16, paddingVertical: 14 },
+
+    topRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 14,
+        marginBottom: 10,
     },
-    date: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: '#94a3b8',
-    },
+    date: { fontSize: 12, fontWeight: '500', color: c.textSecondary },
     badge: {
-        backgroundColor: 'rgba(37,99,235,0.12)',
-        paddingHorizontal: 10,
+        backgroundColor: c.accent + '18',
+        paddingHorizontal: 9,
         paddingVertical: 3,
         borderRadius: 20,
-        borderWidth: 1,
-        borderColor: 'rgba(37,99,235,0.2)',
     },
     badgeText: {
         fontSize: 10,
         fontWeight: '700',
-        color: '#3b82f6',
+        color: c.accent,
         textTransform: 'uppercase',
         letterSpacing: 0.5,
     },
-    stats: {
+
+    distanceRow: {
+        flexDirection: 'row',
+        alignItems: 'baseline',
+        marginBottom: 8,
+        gap: 4,
+    },
+    distanceNumber: {
+        fontSize: 38,
+        fontWeight: '900',
+        color: c.textPrimary,
+        letterSpacing: -1,
+        lineHeight: 42,
+    },
+    distanceUnit: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: c.textSecondary,
+        marginBottom: 2,
+    },
+
+    infoRow: {
         flexDirection: 'row',
         alignItems: 'center',
+        gap: 6,
+        flexWrap: 'wrap',
     },
-    statItem: {
-        flex: 1,
-        alignItems: 'center',
-    },
-    statValue: {
-        fontSize: 20,
-        fontWeight: '800',
-        color: '#f1f5f9',
-        lineHeight: 24,
-    },
-    statUnit: {
-        fontSize: 10,
-        fontWeight: '700',
-        color: '#2563eb',
-        letterSpacing: 0.4,
-        marginTop: 1,
-        marginBottom: 3,
-    },
-    statLabel: {
-        fontSize: 11,
-        color: '#475569',
-        fontWeight: '500',
-    },
-    statDivider: {
-        width: 1,
-        height: 40,
-        backgroundColor: 'rgba(255,255,255,0.06)',
-    },
+    infoText: { fontSize: 13, color: c.textSecondary, fontWeight: '500' },
+    infoDot: { fontSize: 13, color: c.textMuted },
+    infoTopSpeed: { color: c.orange, fontWeight: '600' },
 });
 
 export default RideCard;
