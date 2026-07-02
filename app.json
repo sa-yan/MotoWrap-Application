@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "MotoWrapMobile",
+    "name": "MotoWrap",
     "slug": "MotoWrapMobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -16,7 +16,7 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "package": "com.sayan2209.MotoWrapMobile"
+      "package": "com.sayan2209.motowrap"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -25,6 +25,24 @@
       "eas": {
         "projectId": "03bc0b06-81af-4427-aa33-581881d6efb1"
       }
-    }
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow MotoWrap to use your location to track your rides.",
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      "expo-notifications",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "backgroundColor": "#0f172a"
+        }
+      ]
+    ]
   }
 }

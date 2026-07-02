@@ -18,6 +18,24 @@ import { useTheme } from '../context/ThemeContext';
 import { bikeAPI } from '../services/api';
 import { getErrorMessage } from '../utils/errors';
 
+// Module-scope so React doesn't remount the TextInput (and close the keyboard)
+// on every keystroke — receives styles + colors explicitly.
+const Field = ({ s, colors, label, value, onChangeText, placeholder, keyboardType, maxLength }) => (
+    <View style={s.field}>
+        <Text style={s.fieldLabel}>{label}</Text>
+        <TextInput
+            style={s.fieldInput}
+            value={value}
+            onChangeText={onChangeText}
+            placeholder={placeholder}
+            placeholderTextColor={colors.placeholder}
+            keyboardType={keyboardType ?? 'default'}
+            maxLength={maxLength}
+            returnKeyType="next"
+        />
+    </View>
+);
+
 export const BikeFormScreen = ({ route, navigation }) => {
     const { bike } = route.params; // null = create, object = edit
     const isEdit = bike != null;
@@ -62,22 +80,6 @@ export const BikeFormScreen = ({ route, navigation }) => {
         }
     };
 
-    const Field = ({ label, value, onChangeText, placeholder, keyboardType, maxLength }) => (
-        <View style={s.field}>
-            <Text style={s.fieldLabel}>{label}</Text>
-            <TextInput
-                style={s.fieldInput}
-                value={value}
-                onChangeText={onChangeText}
-                placeholder={placeholder}
-                placeholderTextColor={colors.placeholder}
-                keyboardType={keyboardType ?? 'default'}
-                maxLength={maxLength}
-                returnKeyType="next"
-            />
-        </View>
-    );
-
     return (
         <KeyboardAvoidingView
             style={s.container}
@@ -103,6 +105,8 @@ export const BikeFormScreen = ({ route, navigation }) => {
                     <Text style={s.cardSectionLabel}>IDENTITY</Text>
 
                     <Field
+                        s={s}
+                        colors={colors}
                         label="NICKNAME *"
                         value={nickname}
                         onChangeText={setNickname}
@@ -110,6 +114,8 @@ export const BikeFormScreen = ({ route, navigation }) => {
                     />
                     <View style={s.divider} />
                     <Field
+                        s={s}
+                        colors={colors}
                         label="MAKE"
                         value={make}
                         onChangeText={setMake}
@@ -117,6 +123,8 @@ export const BikeFormScreen = ({ route, navigation }) => {
                     />
                     <View style={s.divider} />
                     <Field
+                        s={s}
+                        colors={colors}
                         label="MODEL"
                         value={model}
                         onChangeText={setModel}
@@ -124,6 +132,8 @@ export const BikeFormScreen = ({ route, navigation }) => {
                     />
                     <View style={s.divider} />
                     <Field
+                        s={s}
+                        colors={colors}
                         label="YEAR"
                         value={year}
                         onChangeText={setYear}
@@ -137,6 +147,8 @@ export const BikeFormScreen = ({ route, navigation }) => {
                     <Text style={s.cardSectionLabel}>DETAILS</Text>
 
                     <Field
+                        s={s}
+                        colors={colors}
                         label="ENGINE (CC)"
                         value={engineCC}
                         onChangeText={setEngineCC}
@@ -146,6 +158,8 @@ export const BikeFormScreen = ({ route, navigation }) => {
                     />
                     <View style={s.divider} />
                     <Field
+                        s={s}
+                        colors={colors}
                         label="COLOR"
                         value={color}
                         onChangeText={setColor}
@@ -153,6 +167,8 @@ export const BikeFormScreen = ({ route, navigation }) => {
                     />
                     <View style={s.divider} />
                     <Field
+                        s={s}
+                        colors={colors}
                         label="LICENSE PLATE"
                         value={licensePlate}
                         onChangeText={setLicensePlate}

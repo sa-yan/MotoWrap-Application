@@ -18,14 +18,24 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
-// On 401/403, clear stored credentials so AuthContext redirects to login
+// Callback registered by AuthContext so the UI can react to a forced logout.
+let onUnauthorized = null;
+export const setOnUnauthorized = (cb) => {
+  onUnauthorized = cb;
+};
+
+// On 401/403, clear stored credentials so AuthContext redirects to login.
+// Auth endpoints are skipped — a wrong password must not log anyone out.
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const status = error?.response?.status;
-    if (status === 401 || status === 403) {
+    const url = error?.config?.url ?? '';
+    const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/register');
+    if ((status === 401 || status === 403) && !isAuthEndpoint) {
       await AsyncStorage.removeItem('token');
       await AsyncStorage.removeItem('user');
+      if (onUnauthorized) onUnauthorized();
     }
     return Promise.reject(error);
   },
@@ -41,6 +51,7 @@ export const authAPI = {
 export const userAPI = {
   getProfile: () => api.get('/users/me'),
   updateProfile: (data) => api.put('/users/me', data),
+  deleteAccount: () => api.delete('/users/me'),
 };
 
 export const bikeAPI = {

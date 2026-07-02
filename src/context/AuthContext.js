@@ -2,7 +2,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useEffect, useState } from 'react';
-import { authAPI } from '../services/api';
+import { authAPI, setOnUnauthorized } from '../services/api';
 
 export const AuthContext = createContext();
 
@@ -28,6 +28,17 @@ export const AuthProvider = ({ children }) => {
             }
         };
         checkLogin();
+    }, []);
+
+    // When the API layer hits a 401/403 (expired/invalid token), it clears
+    // AsyncStorage and calls this — clearing state sends the user to Login
+    // via the navigation logic in App.js.
+    useEffect(() => {
+        setOnUnauthorized(() => {
+            setToken(null);
+            setUser(null);
+        });
+        return () => setOnUnauthorized(null);
     }, []);
 
     const register = async (email, password, name) => {

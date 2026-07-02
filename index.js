@@ -1,5 +1,7 @@
 import { registerRootComponent } from 'expo';
 
+// Registers the ride GPS TaskManager task at global scope (required before launch)
+import './src/services/locationTask';
 import App from './App';
 
 // registerRootComponent calls AppRegistry.registerComponent('main', () => App);

@@ -3,14 +3,35 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  Alert, ActivityIndicator, StatusBar, AppState,
+  Alert, ActivityIndicator, StatusBar, AppState, Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
+import * as Notifications from 'expo-notifications';
 import { OSMMap } from '../components/OSMMap';
+import {
+  startRideTracking, stopRideTracking, addLocationListener,
+} from '../services/locationTask';
 import { useTheme } from '../context/ThemeContext';
 import { rideAPI } from '../services/api';
 import { getErrorMessage } from '../utils/errors';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldPlaySound: false,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
+const notifyUser = async (title, body) => {
+  try {
+    await Notifications.scheduleNotificationAsync({ content: { title, body }, trigger: null });
+  } catch (e) {
+    // Notifications are a nice-to-have — never block ride tracking on this
+  }
+};
 
 // Haversine distance in meters between two {latitude, longitude} points
 const haversineDistance = (p1, p2) => {
@@ -30,10 +51,15 @@ const MAX_ACCURACY_METERS = 25;
 const MIN_DISTANCE_METERS = 5;
 // Points implying a speed faster than this are discarded (GPS teleportation spike)
 const MAX_SPEED_KMH = 250;
+// Below this chipset speed, the rider is considered stopped (for auto-pause)
+const AUTO_PAUSE_SPEED_KMH = 3;
+// How long the rider must stay below AUTO_PAUSE_SPEED_KMH before auto-pausing
+const AUTO_PAUSE_DELAY_MS = 10000;
 
 export const RecordRideScreen = () => {
   const { colors } = useTheme();
   const [isRecording, setIsRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
   const [routeCoordinates, setRouteCoordinates] = useState([]);
   const [duration, setDuration] = useState(0);
@@ -43,7 +69,7 @@ export const RecordRideScreen = () => {
   const [loading, setLoading] = useState(false);
   const [gpsAccuracy, setGpsAccuracy] = useState(null);
 
-  const locationSubscription = useRef(null);
+  const removeLocationListener = useRef(null);
   const durationInterval = useRef(null);
   const batchInterval = useRef(null);
   const mapRef = useRef(null);
@@ -53,13 +79,29 @@ export const RecordRideScreen = () => {
   // Buffer holds points not yet sent to backend
   const pointBuffer = useRef([]);
 
+  // Mirrors isPaused for use inside the location-update handler closure
+  const isPausedRef = useRef(false);
+  // Timestamp when chipset speed first dropped below AUTO_PAUSE_SPEED_KMH
+  const lowSpeedSince = useRef(null);
+
   const locationAcquired = useRef(false);
 
   const initLocation = async () => {
     if (locationAcquired.current) return;
-    const { status } = await Location.requestForegroundPermissionsAsync();
+    const { status, canAskAgain } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission Denied', 'Location access is required.');
+      if (canAskAgain) {
+        Alert.alert('Permission Denied', 'Location access is required.');
+      } else {
+        Alert.alert(
+          'Location Permission Needed',
+          'Location access was denied. Enable it in Settings to record rides.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          ]
+        );
+      }
       return;
     }
     const servicesEnabled = await Location.hasServicesEnabledAsync();
@@ -81,6 +123,7 @@ export const RecordRideScreen = () => {
 
   useEffect(() => {
     initLocation();
+    Notifications.requestPermissionsAsync();
     const appStateSub = AppState.addEventListener('change', (state) => {
       if (state === 'active') initLocation();
     });
@@ -91,7 +134,11 @@ export const RecordRideScreen = () => {
   }, []);
 
   const stopAllTracking = () => {
-    if (locationSubscription.current) locationSubscription.current.remove();
+    if (removeLocationListener.current) {
+      removeLocationListener.current();
+      removeLocationListener.current = null;
+    }
+    stopRideTracking();
     if (durationInterval.current) clearInterval(durationInterval.current);
     if (batchInterval.current) clearInterval(batchInterval.current);
   };
@@ -114,6 +161,7 @@ export const RecordRideScreen = () => {
     try {
       await rideAPI.startRide();
       setIsRecording(true);
+      setIsPaused(false);
       setRouteCoordinates([]);
       setDuration(0);
       setDistanceKm(0);
@@ -121,20 +169,51 @@ export const RecordRideScreen = () => {
       setMaxSpeedKmh(0);
       pointBuffer.current = [];
       lastAcceptedPoint.current = null;
+      isPausedRef.current = false;
+      lowSpeedSince.current = null;
 
-      // Watch GPS location
-      locationSubscription.current = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.BestForNavigation,
-          timeInterval: 1000,       // 1s — tighter tracking at speed
-          distanceInterval: 5,      // skip OS-level events for moves < 5m
-        },
-        (location) => {
+      // GPS updates come from a TaskManager task backed by an Android
+      // foreground service, so tracking survives screen lock / backgrounding.
+      const handleLocation = (location) => {
           const { latitude, longitude, altitude, accuracy, speed } = location.coords;
           const timestamp = location.timestamp;
 
           // Always update accuracy display
           setGpsAccuracy(accuracy);
+
+          // Auto-pause — evaluated BEFORE the accuracy filter, because chipset
+          // (Doppler) speed is reliable even when the position fix is poor,
+          // and stationary fixes often have degraded accuracy.
+          const chipsetSpeedKmh = (speed != null && speed >= 0) ? speed * 3.6 : null;
+          if (chipsetSpeedKmh !== null) {
+            if (chipsetSpeedKmh < AUTO_PAUSE_SPEED_KMH) {
+              if (lowSpeedSince.current === null) lowSpeedSince.current = timestamp;
+              if (!isPausedRef.current && timestamp - lowSpeedSince.current >= AUTO_PAUSE_DELAY_MS) {
+                isPausedRef.current = true;
+                setIsPaused(true);
+                setCurrentSpeedKmh(0);
+                if (durationInterval.current) {
+                  clearInterval(durationInterval.current);
+                  durationInterval.current = null;
+                }
+                notifyUser('Ride Auto-Paused', 'No movement detected — timer paused.');
+              }
+            } else {
+              lowSpeedSince.current = null;
+              if (isPausedRef.current) {
+                isPausedRef.current = false;
+                setIsPaused(false);
+                // Drop the pre-pause point so the resumed segment doesn't compute
+                // distance/speed across the stopped gap.
+                lastAcceptedPoint.current = null;
+                if (!durationInterval.current) {
+                  durationInterval.current = setInterval(() => setDuration((p) => p + 1), 1000);
+                }
+                notifyUser('Ride Resumed', "You're moving again — timer resumed.");
+              }
+            }
+          }
+          if (isPausedRef.current) return;
 
           // 1. Accuracy filter — discard low-confidence fixes
           if (accuracy !== null && accuracy > MAX_ACCURACY_METERS) return;
@@ -164,9 +243,6 @@ export const RecordRideScreen = () => {
           setUserLocation({ latitude, longitude });
           setRouteCoordinates((prev) => [...prev, { latitude, longitude }]);
 
-          // speed from chipset is in m/s — convert to km/h for backend
-          const chipsetSpeedKmh = (speed != null && speed >= 0) ? speed * 3.6 : null;
-
           pointBuffer.current.push({
             latitude,
             longitude,
@@ -174,8 +250,10 @@ export const RecordRideScreen = () => {
             accuracy: accuracy ?? null,
             speed: chipsetSpeedKmh,
           });
-        }
-      );
+      };
+
+      removeLocationListener.current = addLocationListener(handleLocation);
+      await startRideTracking();
 
       // Send batch every 10 seconds
       batchInterval.current = setInterval(flushPointBuffer, 10000);
@@ -184,6 +262,9 @@ export const RecordRideScreen = () => {
       durationInterval.current = setInterval(() => setDuration((p) => p + 1), 1000);
 
     } catch (e) {
+      // Roll back so the UI never shows "REC" without live tracking behind it
+      stopAllTracking();
+      setIsRecording(false);
       Alert.alert('Could Not Start Ride', getErrorMessage(e, 'Failed to start ride'));
     } finally {
       setLoading(false);
@@ -214,7 +295,42 @@ export const RecordRideScreen = () => {
       // End the ride
       const response = await rideAPI.endRide();
 
-      const dist = Math.round((response.data.distanceKm || 0) * 10) / 10;
+      const resetRideState = () => {
+        setIsRecording(false);
+        setIsPaused(false);
+        setRouteCoordinates([]);
+        setDuration(0);
+        setDistanceKm(0);
+        setCurrentSpeedKmh(0);
+        setMaxSpeedKmh(0);
+        if (userLocation && mapRef.current) {
+          mapRef.current.injectJavaScript(
+            `resetMap(${userLocation.latitude}, ${userLocation.longitude}); true;`
+          );
+        }
+      };
+
+      const rawDistKm = response.data.distanceKm || 0;
+
+      // Don't keep rides where the rider never actually moved
+      if (rawDistKm <= 0) {
+        if (response.data.id != null) {
+          try {
+            await rideAPI.deleteRide(response.data.id);
+          } catch (e) {
+            // Ride still ended server-side even if the discard-delete fails; not worth blocking on
+          }
+        }
+        notifyUser('Ride Discarded', 'No distance was recorded, so this ride was not saved.');
+        Alert.alert(
+          'Ride Discarded',
+          'No distance was recorded, so this ride was not saved.',
+          [{ text: 'OK', onPress: resetRideState }]
+        );
+        return;
+      }
+
+      const dist = Math.round(rawDistKm * 10) / 10;
       const mins = Math.floor((response.data.durationSeconds || 0) / 60);
       const avgSpeed = Math.round((response.data.averageSpeed || 0) * 10) / 10;
       const topSpeed = Math.round((response.data.maxSpeed || maxSpeedKmh) * 10) / 10;
@@ -222,26 +338,12 @@ export const RecordRideScreen = () => {
       Alert.alert(
         '🏍️ Ride Complete!',
         `Distance: ${dist} km\nDuration: ${mins} min\nAvg Speed: ${avgSpeed} km/h\nTop Speed: ${topSpeed} km/h`,
-        [{
-          text: 'OK',
-          onPress: () => {
-            setIsRecording(false);
-            setRouteCoordinates([]);
-            setDuration(0);
-            setDistanceKm(0);
-            setCurrentSpeedKmh(0);
-            setMaxSpeedKmh(0);
-            if (userLocation && mapRef.current) {
-              mapRef.current.injectJavaScript(
-                `resetMap(${userLocation.latitude}, ${userLocation.longitude}); true;`
-              );
-            }
-          }
-        }]
+        [{ text: 'OK', onPress: resetRideState }]
       );
     } catch (e) {
       Alert.alert('Could Not End Ride', getErrorMessage(e, 'Failed to end ride'));
       setIsRecording(false);
+      setIsPaused(false);
     } finally {
       setLoading(false);
     }
@@ -271,6 +373,12 @@ export const RecordRideScreen = () => {
         <View style={s.mapPlaceholder}>
           <ActivityIndicator size="large" color={colors.accent} />
           <Text style={s.placeholderText}>Acquiring GPS...</Text>
+        </View>
+      )}
+
+      {isRecording && isPaused && (
+        <View style={s.pauseBanner} pointerEvents="none">
+          <Text style={s.pauseBannerText}>⏸ Auto-Paused — move to resume</Text>
         </View>
       )}
 
@@ -325,8 +433,11 @@ export const RecordRideScreen = () => {
             <View style={s.statDivider} />
             <View style={s.statItem}>
               <Text style={s.statLabel}>STATUS</Text>
-              <Text style={[s.statValueSmall, isRecording ? s.recording : s.idle]}>
-                {isRecording ? '● REC' : '○ IDLE'}
+              <Text style={[
+                s.statValueSmall,
+                !isRecording ? s.idle : isPaused ? s.paused : s.recording,
+              ]}>
+                {!isRecording ? '○ IDLE' : isPaused ? '⏸ PAUSED' : '● REC'}
               </Text>
             </View>
           </View>
@@ -384,7 +495,17 @@ const styles = (c) => StyleSheet.create({
   statValueSmall: { color: c.textPrimary, fontSize: 13, fontWeight: '600' },
   statDivider: { width: 1, backgroundColor: c.divider, marginVertical: 2 },
   recording: { color: '#ef4444' },
+  paused: { color: '#f59e0b' },
   idle: { color: c.textMuted },
+  pauseBanner: {
+    position: 'absolute', top: 200, left: 0, right: 0,
+    alignItems: 'center', zIndex: 10,
+  },
+  pauseBannerText: {
+    backgroundColor: 'rgba(245, 158, 11, 0.9)', color: '#0f172a',
+    paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20,
+    fontSize: 13, fontWeight: '700', overflow: 'hidden',
+  },
   maxSpeed: { color: c.orange },
   goodAccuracy: { color: '#22c55e' },
   badAccuracy: { color: '#f59e0b' },

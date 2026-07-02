@@ -4,6 +4,7 @@ import { useCallback, useContext, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Linking,
     ScrollView,
     StatusBar,
     StyleSheet,
@@ -19,7 +20,7 @@ import { userAPI, bikeAPI } from '../services/api';
 import { getErrorMessage } from '../utils/errors';
 
 export const ProfileScreen = ({ navigation }) => {
-    const { user, updateUser } = useContext(AuthContext);
+    const { user, updateUser, logout } = useContext(AuthContext);
     const { colors } = useTheme();
     const s = styles(colors);
 
@@ -33,6 +34,9 @@ export const ProfileScreen = ({ navigation }) => {
     // Bikes state
     const [bikes, setBikes] = useState([]);
     const [loadingBikes, setLoadingBikes] = useState(true);
+
+    // Account deletion state
+    const [deletingAccount, setDeletingAccount] = useState(false);
 
     // Load profile once on mount
     useEffect(() => {
@@ -116,6 +120,51 @@ export const ProfileScreen = ({ navigation }) => {
                         } catch (e) {
                             Alert.alert('Error', getErrorMessage(e, 'Failed to delete bike'));
                         }
+                    },
+                },
+            ]
+        );
+    };
+
+    const openPrivacyPolicy = () => {
+        Linking.openURL('https://motowrap-backend-1.onrender.com/privacy')
+            .catch(() => Alert.alert('Error', 'Could not open Privacy Policy'));
+    };
+
+    const performDeleteAccount = async () => {
+        setDeletingAccount(true);
+        try {
+            await userAPI.deleteAccount();
+            await logout();
+        } catch (e) {
+            Alert.alert('Error', getErrorMessage(e, 'Failed to delete account'));
+        } finally {
+            setDeletingAccount(false);
+        }
+    };
+
+    const handleDeleteAccount = () => {
+        Alert.alert(
+            'Delete Account',
+            'This permanently deletes your account, all rides, GPS data, and bikes. This cannot be undone.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: () => {
+                        Alert.alert(
+                            'Are you absolutely sure?',
+                            'Your data will be gone forever.',
+                            [
+                                { text: 'Cancel', style: 'cancel' },
+                                {
+                                    text: 'Delete Everything',
+                                    style: 'destructive',
+                                    onPress: performDeleteAccount,
+                                },
+                            ]
+                        );
                     },
                 },
             ]
@@ -285,6 +334,33 @@ export const ProfileScreen = ({ navigation }) => {
                     {/* Bottom padding inside card */}
                     <View style={{ height: 8 }} />
                 </View>
+
+                {/* Legal + Danger Zone */}
+                <View style={[s.section, s.dangerSection]}>
+                    <Text style={s.sectionTitle}>PRIVACY & ACCOUNT</Text>
+
+                    <TouchableOpacity style={s.linkRow} onPress={openPrivacyPolicy} activeOpacity={0.7}>
+                        <Text style={s.linkRowText}>Privacy Policy</Text>
+                        <Text style={s.linkRowArrow}>›</Text>
+                    </TouchableOpacity>
+
+                    <View style={s.divider} />
+
+                    <TouchableOpacity
+                        style={s.linkRow}
+                        onPress={handleDeleteAccount}
+                        disabled={deletingAccount}
+                        activeOpacity={0.7}
+                    >
+                        {deletingAccount
+                            ? <ActivityIndicator color="#ef4444" size="small" />
+                            : <Text style={s.deleteAccountText}>Delete Account</Text>
+                        }
+                    </TouchableOpacity>
+                    <Text style={s.dangerHint}>
+                        Permanently deletes your account, all rides, GPS data, and bikes.
+                    </Text>
+                </View>
             </ScrollView>
         </View>
     );
@@ -437,6 +513,24 @@ const styles = (c) => StyleSheet.create({
     actionIconDefault: { fontSize: 15, color: '#f59e0b' },
     actionIconEdit: { fontSize: 15, color: c.accent },
     actionIconDelete: { fontSize: 13, color: '#ef4444' },
+
+    dangerSection: { borderColor: '#ef444433' },
+    linkRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 20,
+        paddingVertical: 14,
+    },
+    linkRowText: { fontSize: 15, fontWeight: '500', color: c.textPrimary },
+    linkRowArrow: { fontSize: 20, color: c.textMuted, fontWeight: '300' },
+    deleteAccountText: { fontSize: 15, fontWeight: '700', color: '#ef4444' },
+    dangerHint: {
+        fontSize: 11,
+        color: c.textMuted,
+        paddingHorizontal: 20,
+        paddingBottom: 16,
+    },
 });
 
 export default ProfileScreen;

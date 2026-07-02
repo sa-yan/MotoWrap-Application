@@ -5,6 +5,7 @@ import {
     ActivityIndicator,
     Alert,
     KeyboardAvoidingView,
+    Linking,
     Platform,
     ScrollView,
     StatusBar,
@@ -121,6 +122,16 @@ const LoginScreenComponent = () => {
                         }
                     </TouchableOpacity>
 
+                    <TouchableOpacity
+                        onPress={() => Linking.openURL('https://motowrap-backend-1.onrender.com/privacy').catch(() => {})}
+                        style={s.privacyRow}
+                        activeOpacity={0.7}
+                    >
+                        <Text style={s.privacyText}>
+                            By continuing you agree to our <Text style={s.privacyLink}>Privacy Policy</Text>
+                        </Text>
+                    </TouchableOpacity>
+
                     <TouchableOpacity onPress={() => setIsLogin(!isLogin)} disabled={loading} style={s.switchRow}>
                         <Text style={s.switchText}>
                             {isLogin ? "Don't have an account? " : 'Already have one? '}
@@ -229,6 +240,10 @@ const styles = (c) => StyleSheet.create({
     },
     submitBtnDisabled: { opacity: 0.5 },
     submitBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+
+    privacyRow: { marginTop: 14, alignItems: 'center' },
+    privacyText: { fontSize: 11, color: c.textMuted, textAlign: 'center' },
+    privacyLink: { color: c.accent, fontWeight: '600' },
 
     switchRow: { marginTop: 20, alignItems: 'center' },
     switchText: { fontSize: 14, color: c.textSecondary },
