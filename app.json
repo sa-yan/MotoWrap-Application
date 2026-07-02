@@ -18,7 +18,7 @@
       "package": "com.sayan2209.motowrap"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/icon.png"
     },
     "extra": {
       "eas": {
@@ -37,7 +37,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/splash-icon.png",
+          "image": "./assets/android-icon-foreground.png",
           "imageWidth": 200,
           "backgroundColor": "#0f172a"
         }
